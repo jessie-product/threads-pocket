@@ -3,6 +3,15 @@ import { isDatabaseConfigured, prisma } from "@/lib/prisma";
 
 export const runtime = "nodejs";
 
+type FolderRow = {
+  id: string;
+  name: string;
+  createdAt: Date;
+  _count: {
+    posts: number;
+  };
+};
+
 function errorResponse(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
 }
@@ -41,7 +50,7 @@ export async function GET() {
     ]);
 
     return NextResponse.json({
-      folders: folders.map((folder) => ({
+      folders: (folders as FolderRow[]).map((folder: FolderRow) => ({
         id: folder.id,
         name: folder.name,
         count: folder._count.posts,
