@@ -1,0 +1,18 @@
+generator client {
+  provider = "prisma-client-js"
+  engineType = "binary"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// 這是你的 Threads 貼文資料表
+model ThreadPost {
+  id        String   @id @default(cuid())
+  url       String
+  content   String?
+  summary   String?
+  category  String?
+  createdAt DateTime @default(now())
+}
