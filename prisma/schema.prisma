@@ -11,8 +11,21 @@ datasource db {
 model ThreadPost {
   id        String   @id @default(cuid())
   url       String
+  title     String
   content   String?
   summary   String?
   category  String?
+  folderId  String?
+  folder    Folder?  @relation(fields: [folderId], references: [id], onDelete: SetNull)
   createdAt DateTime @default(now())
+
+  @@index([folderId])
+}
+
+model Folder {
+  id        String       @id @default(cuid())
+  name      String       @unique
+  posts     ThreadPost[]
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
 }

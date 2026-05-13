@@ -1,36 +1,63 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+Threads Pocket is a small Next.js app for saving Threads URLs and showing their saved summaries.
 
 ## Getting Started
 
-First, run the development server:
+Install dependencies and generate Prisma Client:
+
+```bash
+npm install
+npm run db:generate
+```
+
+Create `.env` from `.env.example`, then paste your Neon Postgres connection string:
+
+```bash
+cp .env.example .env
+```
+
+```env
+DATABASE_URL="postgresql://USER:PASSWORD@HOST-pooler.REGION.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+DIRECT_URL="postgresql://USER:PASSWORD@HOST.REGION.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+```
+
+Apply the database migration:
+
+```bash
+npm run db:migrate
+```
+
+Run the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## API
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `GET /api/threads` returns `{ posts }`.
+- `GET /api/threads?folderId=...` returns posts in a folder. Use `folderId=__none` for posts without a folder.
+- `POST /api/threads` accepts `{ "folderId": "...", "title": "Useful idea", "url": "https://..." }` and returns `{ post }`.
+- `PATCH /api/threads/[id]` accepts `{ "folderId": "..." }` or `{ "folderId": null }` to move a saved thread.
+- `GET /api/folders` returns `{ folders, totalCount, noFolderCount }`.
+- `POST /api/folders` accepts `{ "name": "Ideas" }` and returns `{ folder }`.
 
-## Learn More
+## Database
 
-To learn more about Next.js, take a look at the following resources:
+The app uses Prisma with Neon Postgres. The `ThreadPost` table is defined in `prisma/schema.prisma`, and the initial migration lives in `prisma/migrations`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Useful commands:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+npm run db:generate
+npm run db:migrate
+npm run db:push
+npm run db:studio
+```
 
 ## Deploy on Vercel
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Set `DATABASE_URL` in Vercel Environment Variables before deploying. Run migrations against Neon before opening the production app.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+This project requires Node.js `20.19+`, `22.12+`, or `24+` because Prisma 7 enforces that engine range.
