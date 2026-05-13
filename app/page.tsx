@@ -34,6 +34,14 @@ type FolderCreateResponse = {
   error?: string;
 };
 
+type FolderUpdateResponse = FolderCreateResponse;
+
+type FolderDeleteResponse = {
+  deletedFolderId?: string;
+  movedToNoFolder?: number;
+  error?: string;
+};
+
 type ThreadsListResponse = {
   posts?: ThreadPost[];
   error?: string;
@@ -61,11 +69,18 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+  const [folderActionId, setFolderActionId] = useState<string | null>(null);
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [editingFolderName, setEditingFolderName] = useState("");
   const [movingPostId, setMovingPostId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const canSubmit = title.trim().length > 0 && url.trim().length > 0 && !isSaving;
   const canCreateFolder = newFolderName.trim().length > 0 && !isCreatingFolder;
+  const selectedFolder =
+    activeFolderId === ALL_FOLDERS || activeFolderId === NO_FOLDER
+      ? null
+      : folders.find((folder) => folder.id === activeFolderId) ?? null;
   function threadsEndpoint(filter = activeFolderId) {
     if (filter === ALL_FOLDERS) return "/api/threads";
     return `/api/threads?folderId=${encodeURIComponent(filter)}`;
@@ -176,6 +191,98 @@ export default function Home() {
       setError(e instanceof Error ? e.message : "Failed to save");
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  function startRenameFolder(folder: Folder) {
+    setEditingFolderId(folder.id);
+    setEditingFolderName(folder.name);
+    setError(null);
+  }
+
+  function cancelRenameFolder() {
+    setEditingFolderId(null);
+    setEditingFolderName("");
+  }
+
+  async function renameFolder(folder: Folder, nextNameRaw: string) {
+    if (folderActionId) return;
+    const nextName = nextNameRaw.trim();
+    if (!nextName || nextName === folder.name) {
+      cancelRenameFolder();
+      return;
+    }
+
+    setFolderActionId(folder.id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/folders/${folder.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: nextName }),
+      });
+      const json = (await res.json()) as FolderUpdateResponse;
+      if (!res.ok) {
+        throw new Error(json.error || `Request failed (${res.status})`);
+      }
+      if (!json.folder) throw new Error("Failed to rename folder");
+
+      setFolders((current) =>
+        current
+          .map((item) => (item.id === folder.id ? { ...item, name: json.folder!.name } : item))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      );
+      setPosts((current) =>
+        current.map((post) =>
+          post.folder?.id === folder.id ? { ...post, folder: { ...post.folder, name: json.folder!.name } } : post,
+        ),
+      );
+      cancelRenameFolder();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to rename folder");
+    } finally {
+      setFolderActionId(null);
+    }
+  }
+
+  async function deleteFolder(folder: Folder) {
+    if (folderActionId) return;
+    const confirmed = window.confirm(`確定要刪除「${folder.name}」嗎？資料會移到待分類。`);
+    if (!confirmed) return;
+
+    setFolderActionId(folder.id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/folders/${folder.id}`, {
+        method: "DELETE",
+      });
+      const json = (await res.json()) as FolderDeleteResponse;
+      if (!res.ok) {
+        throw new Error(json.error || `Request failed (${res.status})`);
+      }
+
+      setFolders((current) => current.filter((item) => item.id !== folder.id));
+      setCounts((current) => ({
+        noFolder: current.noFolder + folder.count,
+        total: current.total,
+      }));
+      setPosts((current) =>
+        current.map((post) =>
+          post.folder?.id === folder.id ? { ...post, folder: null, category: null } : post,
+        ),
+      );
+
+      if (activeFolderId === folder.id) {
+        setActiveFolderId(ALL_FOLDERS);
+        void load(ALL_FOLDERS);
+      }
+      if (folderId === folder.id) {
+        setFolderId("");
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to delete folder");
+    } finally {
+      setFolderActionId(null);
     }
   }
 
@@ -373,20 +480,69 @@ export default function Home() {
 
           <section className="mt-10">
             <div className="mb-4 flex items-baseline justify-between">
-              <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-                {activeFolderId === ALL_FOLDERS
-                  ? "Saved threads"
-                  : activeFolderId === NO_FOLDER
-                    ? "No folder"
-                    : folders.find((folder) => folder.id === activeFolderId)?.name || "Saved threads"}
-              </h2>
-              <button
-                type="button"
-                onClick={() => void load()}
-                className="text-xs font-medium text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
-              >
-                Refresh
-              </button>
+              {selectedFolder && editingFolderId === selectedFolder.id ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    value={editingFolderName}
+                    onChange={(event) => setEditingFolderName(event.target.value)}
+                    maxLength={60}
+                    className="h-8 w-56 rounded border border-zinc-300 bg-transparent px-2 text-sm font-semibold text-zinc-800 outline-none focus:border-zinc-500 dark:border-zinc-700 dark:text-zinc-200 dark:focus:border-zinc-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void renameFolder(selectedFolder, editingFolderName)}
+                    disabled={folderActionId === selectedFolder.id || editingFolderName.trim().length === 0}
+                    className="rounded px-2 py-1 text-[11px] font-medium text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 disabled:cursor-wait disabled:opacity-50 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+                  >
+                    儲存
+                  </button>
+                  <button
+                    type="button"
+                    onClick={cancelRenameFolder}
+                    disabled={folderActionId === selectedFolder.id}
+                    className="rounded px-2 py-1 text-[11px] font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 disabled:cursor-wait disabled:opacity-50 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-200"
+                  >
+                    取消
+                  </button>
+                </div>
+              ) : (
+                <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                  {activeFolderId === ALL_FOLDERS
+                    ? "Saved threads"
+                    : activeFolderId === NO_FOLDER
+                      ? "No folder"
+                      : folders.find((folder) => folder.id === activeFolderId)?.name || "Saved threads"}
+                </h2>
+              )}
+              <div className="flex items-center gap-2">
+                {selectedFolder ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => startRenameFolder(selectedFolder)}
+                      disabled={folderActionId === selectedFolder.id}
+                      className="rounded px-2 py-1 text-[11px] font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 disabled:cursor-wait disabled:opacity-50 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+                    >
+                      編輯
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void deleteFolder(selectedFolder)}
+                      disabled={folderActionId === selectedFolder.id}
+                      className="rounded px-2 py-1 text-[11px] font-medium text-red-500 hover:bg-red-500/10 disabled:cursor-wait disabled:opacity-50 dark:text-red-300"
+                    >
+                      刪除
+                    </button>
+                  </>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => void load()}
+                  className="text-xs font-medium text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+                >
+                  Refresh
+                </button>
+              </div>
             </div>
 
             {isLoading ? (
@@ -492,14 +648,16 @@ function FolderButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex h-10 w-full items-center justify-between rounded-lg px-3 text-left text-sm transition ${
+      className={`group flex h-10 w-full items-center gap-2 rounded-lg px-2 text-left text-sm transition ${
         active
           ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-950"
           : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
       }`}
     >
-      <span className="truncate">{label}</span>
-      <span className={active ? "text-zinc-300 dark:text-zinc-600" : "text-zinc-400"}>{count}</span>
+      <span className="flex min-w-0 flex-1 items-center justify-between px-1">
+        <span className="truncate">{label}</span>
+        <span className={active ? "text-zinc-300 dark:text-zinc-600" : "text-zinc-400"}>{count}</span>
+      </span>
     </button>
   );
 }
